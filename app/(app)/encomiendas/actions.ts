@@ -1,79 +1,226 @@
 'use server'
 
+import { randomBytes } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { MAX_PACKAGES, SHIPMENT_STATUSES, volumetricWeight } from '@/lib/encomiendas'
+import {
+  GUIDE_STATUSES,
+  MAX_CONTENT_LINES,
+  MAX_GUIDES,
+  MAX_PACKAGES,
+  ORIGIN_COUNTRY,
+  SHIPMENT_STATUSES,
+  billableWeight,
+  shipmentTotals,
+  volumetricWeight,
+} from '@/lib/encomiendas'
+import { isUuid } from '@/lib/encomiendas-data'
 import { ValidationError, amount, date, oneOf, text, type FormState } from '@/lib/form-utils'
 
-function parsePackages(raw: FormDataEntryValue | null) {
+const MAX_TEXT = 500
+
+function limited(formData: FormData, key: string, opts?: { required?: boolean; label?: string }) {
+  const value = text(formData, key, opts)
+  if (value && value.length > MAX_TEXT) throw new ValidationError(`"${opts?.label ?? key}" es demasiado largo.`)
+  return value
+}
+
+function envCode(formData: FormData) {
+  const raw = text(formData, 'codigo_env')?.toUpperCase().replace(/\s+/g, '') ?? null
+  if (raw && !/^[A-Z0-9-]{3,30}$/.test(raw)) {
+    throw new ValidationError('El código ENV solo admite letras, números y guiones (3 a 30 caracteres).')
+  }
+  if (raw) return raw
+  const today = new Date().toISOString().slice(2, 10).replace(/-/g, '')
+  return `ENV-${today}-${randomBytes(3).toString('hex').toUpperCase()}`
+}
+
+function email(formData: FormData, key: string) {
+  const value = limited(formData, key, { label: 'Email' })
+  if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new ValidationError('El email del remitente no es válido.')
+  return value
+}
+
+function parties(formData: FormData) {
+  return {
+    remitente_nombre: limited(formData, 'remitente_nombre', { required: true, label: 'Nombre del remitente' })!,
+    remitente_documento: limited(formData, 'remitente_documento'),
+    remitente_telefono: limited(formData, 'remitente_telefono'),
+    remitente_direccion: limited(formData, 'remitente_direccion'),
+    remitente_ciudad: limited(formData, 'remitente_ciudad'),
+    remitente_pais: limited(formData, 'remitente_pais') ?? ORIGIN_COUNTRY,
+    remitente_email: email(formData, 'remitente_email'),
+    destinatario_nombre: limited(formData, 'destinatario_nombre', { required: true, label: 'Nombre del destinatario' })!,
+    destinatario_documento: limited(formData, 'destinatario_documento'),
+    destinatario_telefono: limited(formData, 'destinatario_telefono'),
+    destinatario_estado: limited(formData, 'destinatario_estado'),
+    destinatario_ciudad: limited(formData, 'destinatario_ciudad', { required: true, label: 'Ciudad del destinatario' })!,
+    agencia_zoom: limited(formData, 'agencia_zoom'),
+    destinatario_observaciones: limited(formData, 'destinatario_observaciones'),
+  }
+}
+
+function parseJsonList(raw: FormDataEntryValue | null, label: string): Record<string, unknown>[] {
   let list: unknown
   try {
     list = JSON.parse(String(raw ?? '[]'))
   } catch {
-    throw new ValidationError('La lista de paquetes no es válida.')
+    throw new ValidationError(`La lista de ${label} no es válida.`)
   }
-  if (!Array.isArray(list) || list.length === 0) throw new ValidationError('Agrega al menos un paquete.')
+  if (!Array.isArray(list)) throw new ValidationError(`La lista de ${label} no es válida.`)
+  return list.map((item) => (item && typeof item === 'object' ? (item as Record<string, unknown>) : {}))
+}
+
+function parsePackages(raw: FormDataEntryValue | null) {
+  const list = parseJsonList(raw, 'paquetes')
+  if (list.length === 0) throw new ValidationError('Agrega al menos un paquete.')
   if (list.length > MAX_PACKAGES) throw new ValidationError(`Máximo ${MAX_PACKAGES} paquetes por encomienda.`)
 
-  return list.map((item, i) => {
-    const p = (item ?? {}) as Record<string, unknown>
+  return list.map((p, i) => {
     const n = i + 1
     const ancho = amount(p.ancho, `Ancho del paquete ${n}`)
     const largo = amount(p.largo, `Largo del paquete ${n}`)
     const alto = amount(p.alto, `Alto del paquete ${n}`)
-    const peso_fisico = amount(p.peso, `Peso del paquete ${n}`)
+    const peso_fisico = amount(p.peso, `Peso físico del paquete ${n}`)
     if (peso_fisico === null) throw new ValidationError(`Indica el peso físico del paquete ${n}.`)
-    const vol = ancho && largo && alto ? volumetricWeight(ancho, largo, alto) : null
+    const peso_volumetrico = ancho && largo && alto ? volumetricWeight(ancho, largo, alto) : null
     return {
       numero: n,
       ancho,
       largo,
       alto,
       peso_fisico,
-      peso_volumetrico: vol === null ? null : Math.round(vol * 100) / 100,
+      peso_volumetrico,
+      peso_facturable: billableWeight(peso_fisico, peso_volumetrico),
     }
   })
 }
 
-export async function createShipment(_prev: FormState, formData: FormData): Promise<FormState> {
-  const supabase = await createClient()
-  if (!supabase) return { error: 'Supabase no está conectado.' }
+function parseContent(raw: FormDataEntryValue | null) {
+  const lines = parseJsonList(raw, 'contenido')
+    .map((l) => ({ descripcion: String(l.descripcion ?? '').trim(), cantidad: l.cantidad }))
+    .filter((l) => l.descripcion)
+  if (lines.length > MAX_CONTENT_LINES) throw new ValidationError(`Máximo ${MAX_CONTENT_LINES} líneas de contenido.`)
+  return lines.map((l, i) => {
+    if (l.descripcion.length > 200) throw new ValidationError(`La descripción de la línea ${i + 1} es demasiado larga.`)
+    return { linea: i + 1, descripcion: l.descripcion, cantidad: amount(l.cantidad, `Cantidad de la línea ${i + 1}`) }
+  })
+}
 
+function parseGuides(raw: FormDataEntryValue | null, packageCount: number) {
+  const guides = parseJsonList(raw, 'guías').filter((g) => String(g.numero_guia ?? '').trim())
+  if (guides.length > MAX_GUIDES) throw new ValidationError(`Máximo ${MAX_GUIDES} guías por encomienda.`)
+  const seen = new Set<string>()
+  return guides.map((g, i) => {
+    const n = i + 1
+    const numero_guia = String(g.numero_guia).trim().toUpperCase()
+    if (!/^[A-Z0-9-]{3,40}$/.test(numero_guia)) throw new ValidationError(`El número de la guía ${n} no es válido.`)
+    if (seen.has(numero_guia)) throw new ValidationError(`La guía ${numero_guia} está repetida.`)
+    seen.add(numero_guia)
+    const estado = String(g.estado ?? 'Asignada')
+    if (!(GUIDE_STATUSES as readonly string[]).includes(estado)) {
+      throw new ValidationError(`El estado de la guía ${n} no es válido.`)
+    }
+    const paqueteRaw = String(g.paquete_numero ?? '').trim()
+    const paquete_numero = paqueteRaw ? Number(paqueteRaw) : null
+    if (paquete_numero !== null && (!Number.isInteger(paquete_numero) || paquete_numero < 1 || paquete_numero > packageCount)) {
+      throw new ValidationError(`La guía ${n} está asociada a un paquete que no existe.`)
+    }
+    return { numero_guia, peso: amount(g.peso, `Peso de la guía ${n}`), estado, paquete_numero }
+  })
+}
+
+async function requireUser() {
+  const supabase = await createClient()
+  if (!supabase) return { error: 'Supabase no está conectado.' } as const
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return { error: 'Tu sesión expiró. Inicia sesión nuevamente.' }
+  if (!user) return { error: 'Tu sesión expiró. Inicia sesión nuevamente.' } as const
+  return { supabase, user } as const
+}
+
+const isUniqueViolation = (error: { code?: string } | null) => error?.code === '23505'
+
+export async function createPreregistro(_prev: FormState, formData: FormData): Promise<FormState> {
+  const auth = await requireUser()
+  if ('error' in auth) return { error: auth.error ?? null }
+  const { supabase, user } = auth
+
+  let record
+  try {
+    const paquetes = amount(formData.get('cantidad_paquetes'), 'Número de paquetes')
+    if (paquetes !== null && (!Number.isInteger(paquetes) || paquetes < 1 || paquetes > MAX_PACKAGES)) {
+      throw new ValidationError(`El número de paquetes debe ser un entero entre 1 y ${MAX_PACKAGES}.`)
+    }
+    const contenido = text(formData, 'contenido_declarado')
+    if (contenido && contenido.length > 2000) throw new ValidationError('El contenido declarado es demasiado largo.')
+    record = {
+      ...parties(formData),
+      codigo_env: envCode(formData),
+      cantidad_paquetes: paquetes,
+      contenido_declarado: contenido,
+      valor_fob: amount(formData.get('valor_fob'), 'Valor FOB'),
+      observaciones: limited(formData, 'observaciones'),
+    }
+  } catch (error) {
+    if (error instanceof ValidationError) return { error: error.message }
+    throw error
+  }
+
+  const { error } = await supabase.from('encomienda_preregistros').insert({ ...record, user_id: user.id })
+  if (isUniqueViolation(error)) return { error: `El código ENV ${record.codigo_env} ya está registrado.` }
+  if (error) return { error: 'No se pudo guardar el pre-registro. Intenta nuevamente.' }
+
+  revalidatePath('/encomiendas', 'layout')
+  redirect('/encomiendas/pre-registros')
+}
+
+export async function createShipment(_prev: FormState, formData: FormData): Promise<FormState> {
+  const auth = await requireUser()
+  if ('error' in auth) return { error: auth.error ?? null }
+  const { supabase, user } = auth
+
+  const preregistroId = String(formData.get('preregistro_id') ?? '')
+  if (preregistroId && !isUuid(preregistroId)) return { error: 'El pre-registro no es válido.' }
+  if (preregistroId) {
+    const { data: pre } = await supabase
+      .from('encomienda_preregistros')
+      .select('estado')
+      .eq('id', preregistroId)
+      .maybeSingle()
+    if (!pre) return { error: 'El pre-registro no existe o no tienes acceso.' }
+    if (pre.estado !== 'Pendiente') return { error: 'Este pre-registro ya fue convertido o anulado.' }
+  }
 
   let shipment
   let packages: ReturnType<typeof parsePackages>
+  let content: ReturnType<typeof parseContent>
+  let guides: ReturnType<typeof parseGuides>
   try {
-    const parsed = parsePackages(formData.get('paquetes'))
-    packages = parsed
-    const sum = (key: 'peso_fisico' | 'peso_volumetrico') =>
-      Math.round(parsed.reduce((acc, p) => acc + (p[key] ?? 0), 0) * 100) / 100
-
+    packages = parsePackages(formData.get('paquetes'))
+    content = parseContent(formData.get('contenido'))
+    guides = parseGuides(formData.get('guias'), packages.length)
     shipment = {
-      remitente_nombre: text(formData, 'remitente_nombre', { required: true, label: 'Nombre del remitente' }),
-      remitente_documento: text(formData, 'remitente_documento'),
-      remitente_telefono: text(formData, 'remitente_telefono'),
-      remitente_ciudad: text(formData, 'remitente_ciudad'),
-      destinatario_nombre: text(formData, 'destinatario_nombre', { required: true, label: 'Nombre del destinatario' }),
-      destinatario_documento: text(formData, 'destinatario_documento'),
-      destinatario_telefono: text(formData, 'destinatario_telefono'),
-      destinatario_ciudad: text(formData, 'destinatario_ciudad', { required: true, label: 'Ciudad del destinatario' }),
-      agencia_zoom: text(formData, 'agencia_zoom'),
-      codigo_guia: text(formData, 'codigo_guia'),
-      contenido_declarado: text(formData, 'contenido_declarado'),
-      valor_fob: amount(formData.get('valor_fob'), 'Valor FOB'),
-      estado: oneOf(formData, 'estado', SHIPMENT_STATUSES, 'Estado del envío') ?? 'Pre-registrada',
+      ...parties(formData),
+      codigo_env: envCode(formData),
+      preregistro_id: preregistroId || null,
+      contenido_declarado: content.map((l) => (l.cantidad ? `${l.cantidad} x ${l.descripcion}` : l.descripcion)).join('\n') || null,
+      codigo_guia: guides.map((g) => g.numero_guia).join(', ') || null,
+      valor_fob: amount(formData.get('valor_fob'), 'Total FOB'),
+      estado: oneOf(formData, 'estado', SHIPMENT_STATUSES, 'Estado de encomienda') ?? 'Recibida',
       fecha_recepcion: date(formData, 'fecha_recepcion', 'Fecha de recepción'),
       fecha_salida: date(formData, 'fecha_salida', 'Fecha de salida'),
       fecha_llegada_estimada: date(formData, 'fecha_llegada_estimada', 'Fecha estimada de llegada'),
-      observaciones: text(formData, 'observaciones'),
-      cantidad_paquetes: packages.length,
-      peso_fisico_total: sum('peso_fisico'),
-      peso_volumetrico_total: sum('peso_volumetrico'),
+      observaciones: limited(formData, 'observaciones'),
+      ...shipmentTotals(packages),
+    }
+    if (shipment.fecha_salida && shipment.fecha_recepcion && shipment.fecha_salida < shipment.fecha_recepcion) {
+      throw new ValidationError('La fecha de salida no puede ser anterior a la recepción.')
+    }
+    if (shipment.fecha_llegada_estimada && shipment.fecha_salida && shipment.fecha_llegada_estimada < shipment.fecha_salida) {
+      throw new ValidationError('La llegada estimada no puede ser anterior a la salida.')
     }
   } catch (error) {
     if (error instanceof ValidationError) return { error: error.message }
@@ -85,24 +232,35 @@ export async function createShipment(_prev: FormState, formData: FormData): Prom
     .insert({ ...shipment, user_id: user.id })
     .select('id')
     .single()
+  if (isUniqueViolation(error)) return { error: `El código ENV ${shipment.codigo_env} ya está registrado.` }
   if (error || !created) return { error: 'No se pudo guardar la encomienda. Intenta nuevamente.' }
 
-  const [{ error: pkgError }, { error: eventError }] = await Promise.all([
-    supabase
-      .from('encomienda_paquetes')
-      .insert(packages.map((p) => ({ ...p, encomienda_id: created.id, user_id: user.id }))),
+  const withParent = <T extends object>(rows: T[]) =>
+    rows.map((row) => ({ ...row, encomienda_id: created.id, user_id: user.id }))
+
+  const results = await Promise.all([
+    supabase.from('encomienda_paquetes').insert(withParent(packages)),
+    content.length ? supabase.from('encomienda_contenido').insert(withParent(content)) : { error: null },
+    guides.length ? supabase.from('encomienda_guias').insert(withParent(guides)) : { error: null },
     supabase.from('encomienda_eventos').insert({
       encomienda_id: created.id,
       user_id: user.id,
-      evento: 'Encomienda registrada',
+      evento: preregistroId ? 'Encomienda registrada desde pre-registro' : 'Encomienda registrada',
       estado_nuevo: shipment.estado,
     }),
   ])
-  if (pkgError || eventError) {
+  if (results.some((r) => r.error)) {
     await supabase.from('encomiendas').delete().eq('id', created.id)
-    return { error: 'No se pudieron guardar los paquetes. Intenta nuevamente.' }
+    return { error: 'No se pudieron guardar paquetes, contenido o guías. Intenta nuevamente.' }
+  }
+
+  if (preregistroId) {
+    await supabase
+      .from('encomienda_preregistros')
+      .update({ estado: 'Convertido', encomienda_id: created.id, updated_at: new Date().toISOString() })
+      .eq('id', preregistroId)
   }
 
   revalidatePath('/encomiendas', 'layout')
-  redirect('/encomiendas/listado')
+  redirect(`/encomiendas/listado?creada=${created.id}`)
 }
