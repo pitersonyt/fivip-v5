@@ -42,6 +42,8 @@
 .pair footer { text-align:right; font-size:5pt; color:#666; }
 .pair .env-bar { width:184pt; text-align:center; font:15pt monospace; }
 .env-bar svg { width:100%; height:63pt; }
+.pair .zoom-guide { margin:6pt 0 2pt; font-size:9pt; font-weight:bold; }
+.pair .zoom-guide strong { font-family:monospace; font-size:10pt; }
 @media print {
   :is(html, body, body *):has(.official-preview),
   .official-preview {

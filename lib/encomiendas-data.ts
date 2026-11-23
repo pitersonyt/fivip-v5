@@ -140,6 +140,62 @@ export async function getShipmentDocument(id: string): Promise<ShipmentDocument 
   }
 }
 
+export type GuideRecord = Guide & { id: string; encomienda_id: string; created_at: string }
+
+const ASSIGNABLE_COLUMNS =
+  'id, codigo, codigo_env, remitente_nombre, destinatario_nombre, agencia_zoom, cantidad_paquetes, peso_facturable_total, fecha_salida, fecha_llegada_estimada, created_at'
+
+export type AssignableShipment = Pick<
+  Shipment,
+  | 'id'
+  | 'codigo'
+  | 'codigo_env'
+  | 'remitente_nombre'
+  | 'destinatario_nombre'
+  | 'agencia_zoom'
+  | 'cantidad_paquetes'
+  | 'peso_facturable_total'
+  | 'fecha_salida'
+  | 'fecha_llegada_estimada'
+  | 'created_at'
+>
+
+export type GuidesOverview = { guides: GuideRecord[]; shipments: AssignableShipment[] }
+
+const loadFailure = (table: string, operation: string, error: { message: string; code?: string }) =>
+  `Error cargando ${table === 'encomienda_guias' ? 'guías ZOOM' : 'encomiendas'}: ${error.message}${
+    error.code ? ` [${error.code}]` : ''
+  } (${operation}; public.${table})`
+
+export async function getGuidesOverview(): Promise<Result<GuidesOverview>> {
+  const empty: GuidesOverview = { guides: [], shipments: [] }
+  const supabase = await createClient()
+  if (!supabase) return { data: empty, error: null }
+
+  const [guides, shipments] = await Promise.all([
+    supabase
+      .from('encomienda_guias')
+      .select('id, encomienda_id, numero_guia, peso, estado, paquete_numero, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    supabase.from('encomiendas').select(ASSIGNABLE_COLUMNS).order('created_at', { ascending: false }).limit(500),
+  ])
+  if (guides.error) return { data: empty, error: loadFailure('encomienda_guias', 'SELECT', guides.error) }
+  if (shipments.error) return { data: empty, error: loadFailure('encomiendas', 'SELECT', shipments.error) }
+
+  const guideList = (guides.data as GuideRecord[] | null) ?? []
+  const shipmentList = (shipments.data as AssignableShipment[] | null) ?? []
+  const known = new Set(shipmentList.map((s) => s.id))
+  const missing = [...new Set(guideList.map((g) => g.encomienda_id).filter((id) => !known.has(id)))]
+  if (missing.length) {
+    const { data, error } = await supabase.from('encomiendas').select(ASSIGNABLE_COLUMNS).in('id', missing)
+    if (error) return { data: empty, error: loadFailure('encomiendas', 'SELECT', error) }
+    shipmentList.push(...((data as AssignableShipment[] | null) ?? []))
+  }
+
+  return { data: { guides: guideList, shipments: shipmentList }, error: null }
+}
+
 export type ManifestRow = Shipment & { guias: string[] }
 
 export type Manifest = {

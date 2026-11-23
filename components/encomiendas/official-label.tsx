@@ -23,7 +23,17 @@ function Barcode({ code }: { code: string }) {
 function Measures({ p }: { p: ShipmentDocument['paquetes'][number] }) {
   return <table className="measures"><colgroup>{[28.5,28.5,14.3,14.3,14.4].map((w,i) => <col key={i} style={{width:`${w}%`}} />)}</colgroup><thead><tr>{['PESO FÍSICO','PESO VOLUMEN','LARGO','ANCHO','ALTO'].map((v,i) => <th key={v}>{v}<br/>{i < 2 ? '(KG)' : '(CM)'}</th>)}</tr></thead><tbody><tr>{[p.peso_fisico,p.peso_volumetrico,p.largo,p.ancho,p.alto].map((v,i) => <td key={i}>{v != null ? Number(v).toLocaleString('es') : ''}</td>)}</tr></tbody></table>
 }
-export function LabelDoc({ doc: { shipment: s, paquetes } }: { doc: ShipmentDocument }) {
+function zoomGuide(guias: ShipmentDocument['guias'], numero: number) {
+  const own = guias.filter(g => g.paquete_numero === numero)
+  const list = own.length ? own : guias.filter(g => g.paquete_numero === null)
+  return list.map(g => g.numero_guia).join(' / ') || 'PENDIENTE'
+}
+
+function ZoomGuide({ value }: { value: string }) {
+  return <p className="zoom-guide">GUÍA ZOOM: <strong>{value}</strong></p>
+}
+
+export function LabelDoc({ doc: { shipment: s, paquetes, guias } }: { doc: ShipmentDocument }) {
   const code = (s.codigo_env ?? s.codigo).toUpperCase()
   const destination = [s.destinatario_ciudad,s.destinatario_estado].filter(Boolean).join(' / ')
   if (!paquetes.length) return <article className="official pair">Esta encomienda no tiene paquetes registrados.</article>
@@ -34,7 +44,7 @@ export function LabelDoc({ doc: { shipment: s, paquetes } }: { doc: ShipmentDocu
       <table className="receiver"><colgroup><col style={{width:'43%'}}/><col/></colgroup>{!control && <thead><tr><th colSpan={2}>DESTINATARIO</th></tr></thead>}<tbody>{[[control?'DESTINATARIO':'NOMBRE',s.destinatario_nombre],['CÉDULA / DOCUMENTO',s.destinatario_documento],['TELÉFONO / WHATSAPP',s.destinatario_telefono],...(control ? [['DESTINO',destination],['AGENCIA',s.agencia_zoom]] : [])].map(([k,v]) => <tr key={k}><th scope="row">{k}:</th><td>{v}</td></tr>)}</tbody></table>
       {!control && <table className="dest"><colgroup><col style={{width:'43%'}}/><col/></colgroup><thead><tr><th>DESTINO</th><th>AGENCIA</th></tr></thead><tbody><tr><td>{destination}</td><td>{s.agencia_zoom}</td></tr></tbody></table>}
       <Measures p={p}/>
-      {control ? <><table className="observ"><thead><tr><th>OBSERVACIONES</th></tr></thead><tbody><tr><td/></tr></tbody></table><table className="receipt"><tbody><tr><th>RECIBIDO POR:</th><th>FECHA DE RECEPCIÓN:</th></tr><tr><td>________________________</td><td>____ / ____ / ______</td></tr><tr><th>NOMBRE:</th><th>FIRMA:</th></tr><tr><td>________________________</td><td>________________________</td></tr></tbody></table><footer>FIVIP · ETIQUETA V4.42</footer></> : <Barcode code={code}/>}
+      {control ? <><table className="observ"><thead><tr><th>OBSERVACIONES</th></tr></thead><tbody><tr><td/></tr></tbody></table><table className="receipt"><tbody><tr><th>RECIBIDO POR:</th><th>FECHA DE RECEPCIÓN:</th></tr><tr><td>________________________</td><td>____ / ____ / ______</td></tr><tr><th>NOMBRE:</th><th>FIRMA:</th></tr><tr><td>________________________</td><td>________________________</td></tr></tbody></table><ZoomGuide value={zoomGuide(guias, p.numero)}/><footer>FIVIP · ETIQUETA V4.42</footer></> : <><Barcode code={code}/><ZoomGuide value={zoomGuide(guias, p.numero)}/></>}
     </section>)}
   </article>)}</>
 }

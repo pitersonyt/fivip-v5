@@ -30,6 +30,8 @@ export const SHIPMENT_STATUSES = [
   'Devuelta',
 ] as const
 
+export const ZOOM_GUIDE_FLOW = ['Asignada', 'En tránsito', 'En agencia ZOOM', 'Entregada'] as const
+
 export const PREREGISTRO_STATUSES = ['Pendiente', 'Convertido', 'Anulado'] as const
 
 export const GUIDE_STATUSES = [
