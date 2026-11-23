@@ -16,12 +16,13 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 const options = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'es'))
 
-function Destination({ agencies }: { agencies: ZoomAgencyOption[] }) {
+function Destination({ agencies, catalogError }: { agencies: ZoomAgencyOption[]; catalogError?: string }) {
   const [estado, setEstado] = useState('')
   const [ciudad, setCiudad] = useState('')
   const inState = agencies.filter(a => a.estado === estado)
   return <>
-    <SelectField id="destinatario_estado" label="Estado" required value={estado} onChange={e => { setEstado(e.target.value); setCiudad('') }} options={options(agencies.map(a => a.estado))} placeholder={agencies.length ? 'Seleccionar estado' : 'Sin agencias disponibles'} />
+    {catalogError && <p role="alert" className="col-span-full text-sm text-destructive">No se pudo cargar el catálogo ZOOM: {catalogError}</p>}
+    <SelectField id="destinatario_estado" label="Estado" disabled={!agencies.length} required value={estado} onChange={e => { setEstado(e.target.value); setCiudad('') }} options={options(agencies.map(a => a.estado))} placeholder={catalogError ? 'Error al cargar el catálogo' : agencies.length ? 'Seleccionar estado' : 'Sin agencias disponibles'} />
     <SelectField id="destinatario_ciudad" label="Ciudad / Zona" required disabled={!estado} value={ciudad} onChange={e => setCiudad(e.target.value)} options={options(inState.map(a => a.ciudad))} placeholder="Seleccionar ciudad / zona" />
     <Field id="agencia_zoom_id" label="Agencia ZOOM"><select key={JSON.stringify([estado, ciudad])} name="agencia_zoom_id" id="agencia_zoom_id" required defaultValue="" disabled={!ciudad} className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm disabled:opacity-50"><option value="" disabled>Seleccionar agencia</option>{inState.filter(a => a.ciudad === ciudad).map(a => <option key={a.id} value={a.id}>{a.nombre_agencia}</option>)}</select></Field>
   </>
@@ -35,7 +36,7 @@ function ContactFields({ party }: { party: 'remitente' | 'destinatario' }) {
   </>
 }
 
-export function PreregistroForm({ disabled, agencies }: { disabled: boolean; agencies: ZoomAgencyOption[] }) {
+export function PreregistroForm({ disabled, agencies, catalogError }: { disabled: boolean; agencies: ZoomAgencyOption[]; catalogError?: string }) {
   const [state, formAction, pending] = useActionState(createPreregistro, initialFormState)
   return <form action={formAction} className="flex flex-col gap-4" aria-label="Nuevo pre-registro">
     <fieldset disabled={pending} className="flex min-w-0 flex-col gap-4">
@@ -43,7 +44,7 @@ export function PreregistroForm({ disabled, agencies }: { disabled: boolean; age
         <ContactFields party="remitente" /><TextField id="remitente_direccion" label="Dirección" maxLength={500} required />
       </div></Section>
       <Section title="2. DATOS DEL DESTINATARIO"><div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        <ContactFields party="destinatario" /><Destination agencies={agencies} />
+        <ContactFields party="destinatario" /><Destination agencies={agencies} catalogError={catalogError} />
       </div></Section>
       <Section title="3. MERCANCÍA DECLARADA"><PreregistroDeclaration /></Section>
     </fieldset>
