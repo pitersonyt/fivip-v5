@@ -6,7 +6,9 @@ import { encomiendasSections, type EncomiendasSection } from '@/lib/encomiendas'
 export const dynamicParams = false
 
 export function generateStaticParams() {
-  return Object.keys(encomiendasSections).map((section) => ({ section }))
+  return Object.keys(encomiendasSections)
+    .filter((section) => section !== 'guias-zoom')
+    .map((section) => ({ section }))
 }
 
 function getSection(section: string) {
