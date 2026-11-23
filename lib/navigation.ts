@@ -57,6 +57,7 @@ export const encomiendasNav: NavItem = {
     { title: 'Etiquetas y control', href: '/encomiendas/etiquetas', icon: Tag },
     { title: 'Declaraciones juradas', href: '/encomiendas/declaraciones', icon: FileSignature },
     { title: 'Manifiestos', href: '/encomiendas/manifiestos', icon: FileStack },
+    { title: 'Agencias ZOOM', href: '/encomiendas/agencias-zoom', icon: Building2 },
     { title: 'Historial', href: '/encomiendas/historial', icon: History },
   ],
 }

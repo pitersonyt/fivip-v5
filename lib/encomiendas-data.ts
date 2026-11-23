@@ -14,6 +14,7 @@ export type PartyData = {
   destinatario_estado: string | null
   destinatario_ciudad: string | null
   agencia_zoom: string | null
+  agencia_zoom_id?: string | null
   destinatario_observaciones: string | null
 }
 
@@ -45,6 +46,7 @@ export type Shipment = PartyData & {
   peso_volumetrico_total: number
   peso_facturable_total: number
   revisado: boolean
+  agencia_zoom_direccion?: string | null
   created_at: string
 }
 
@@ -58,7 +60,13 @@ export type ShipmentPackage = {
   peso_facturable: number | null
 }
 
-export type ContentLine = { linea: number; descripcion: string; cantidad: number | null }
+export type ContentLine = {
+  linea: number
+  descripcion: string
+  cantidad: number | null
+  marca?: string | null
+  valor_usd?: number | null
+}
 
 export type Guide = {
   numero_guia: string

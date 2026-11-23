@@ -1,6 +1,10 @@
-import { FormSection, SelectField, TextAreaField, TextField } from '@/components/forms/form-fields'
-import { ORIGIN_COUNTRY, VENEZUELA_STATES } from '@/lib/encomiendas'
+import { FormSection, TextAreaField, TextField } from '@/components/forms/form-fields'
+import { ZoomDestination } from '@/components/encomiendas/zoom-destination'
+import { ORIGIN_COUNTRY } from '@/lib/encomiendas'
 import type { PartyData } from '@/lib/encomiendas-data'
+import type { ZoomAgency } from '@/lib/zoom-agencias-data'
+
+export type ZoomAgencyOption = Pick<ZoomAgency, 'id' | 'estado' | 'ciudad' | 'nombre_agencia' | 'direccion'>
 
 export type PartyDefaults = Partial<Record<keyof PartyData | 'codigo_env', string | null>>
 
@@ -50,12 +54,12 @@ export function SenderFields({ defaults = {} }: { defaults?: PartyDefaults }) {
 }
 
 export function RecipientFields({
+  agencies,
   defaults = {},
-  includeAgency = true,
   envCodeField,
 }: {
+  agencies: ZoomAgencyOption[]
   defaults?: PartyDefaults
-  includeAgency?: boolean
   envCodeField?: React.ReactNode
 }) {
   return (
@@ -81,21 +85,7 @@ export function RecipientFields({
         placeholder="+58 ..."
         defaultValue={v(defaults.destinatario_telefono)}
       />
-      <SelectField
-        id="destinatario_estado"
-        label="Estado"
-        options={VENEZUELA_STATES}
-        defaultValue={defaults.destinatario_estado ?? ''}
-      />
-      <TextField id="destinatario_ciudad" label="Ciudad" required defaultValue={v(defaults.destinatario_ciudad)} />
-      {includeAgency && (
-        <TextField
-          id="agencia_zoom"
-          label="Agencia / oficina ZOOM"
-          hint="Oficina donde se retirará el paquete."
-          defaultValue={v(defaults.agencia_zoom)}
-        />
-      )}
+      <ZoomDestination agencies={agencies} defaults={defaults} />
       {envCodeField}
       <TextAreaField
         id="destinatario_observaciones"

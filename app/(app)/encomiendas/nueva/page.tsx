@@ -6,13 +6,14 @@ import { PageHeader } from '@/components/page-header'
 import { ShipmentForm } from '@/components/encomiendas/shipment-form'
 import { getPreregistro } from '@/lib/encomiendas-data'
 import { isSupabaseConfigured } from '@/lib/supabase/config'
+import { listZoomAgencies } from '@/lib/zoom-agencias-data'
 
 export const metadata: Metadata = { title: 'Nueva encomienda' }
 
 export default async function Page({ searchParams }: PageProps<'/encomiendas/nueva'>) {
   const { pre } = await searchParams
   const preregistroId = typeof pre === 'string' ? pre : undefined
-  const preregistro = await getPreregistro(preregistroId)
+  const [preregistro, { data: agencies }] = await Promise.all([getPreregistro(preregistroId), listZoomAgencies()])
   const pendingPreregistro = preregistro?.estado === 'Pendiente' ? preregistro : null
 
   return (
@@ -40,6 +41,7 @@ export default async function Page({ searchParams }: PageProps<'/encomiendas/nue
         key={pendingPreregistro?.id ?? 'manual'}
         disabled={!isSupabaseConfigured()}
         preregistro={pendingPreregistro}
+        agencies={agencies}
       />
     </>
   )

@@ -54,10 +54,44 @@ function parties(formData: FormData) {
     destinatario_nombre: limited(formData, 'destinatario_nombre', { required: true, label: 'Nombre del destinatario' })!,
     destinatario_documento: limited(formData, 'destinatario_documento'),
     destinatario_telefono: limited(formData, 'destinatario_telefono'),
-    destinatario_estado: limited(formData, 'destinatario_estado'),
-    destinatario_ciudad: limited(formData, 'destinatario_ciudad', { required: true, label: 'Ciudad del destinatario' })!,
-    agencia_zoom: limited(formData, 'agencia_zoom'),
     destinatario_observaciones: limited(formData, 'destinatario_observaciones'),
+  }
+}
+
+type Supabase = NonNullable<Awaited<ReturnType<typeof createClient>>>
+
+async function destination(supabase: Supabase, formData: FormData) {
+  const agencyId = String(formData.get('agencia_zoom_id') ?? '').trim()
+  if (agencyId) {
+    if (!isUuid(agencyId)) throw new ValidationError('La agencia ZOOM seleccionada no es válida.')
+    const { data: agency } = await supabase
+      .from('zoom_agencias')
+      .select('id, estado, ciudad, nombre_agencia, direccion, active')
+      .eq('id', agencyId)
+      .maybeSingle()
+    if (!agency || !agency.active) throw new ValidationError('La agencia ZOOM seleccionada no está disponible.')
+    return {
+      destinatario_estado: agency.estado as string,
+      destinatario_ciudad: agency.ciudad as string,
+      agencia_zoom_id: agency.id as string,
+      agencia_zoom: agency.nombre_agencia as string,
+      direccion: (agency.direccion as string | null) ?? null,
+    }
+  }
+
+  const estado = limited(formData, 'destinatario_estado', { required: true, label: 'Estado del destinatario' })!
+  const { count } = await supabase
+    .from('zoom_agencias')
+    .select('id', { count: 'exact', head: true })
+    .eq('estado', estado)
+    .eq('active', true)
+  if (count) throw new ValidationError('Selecciona la agencia ZOOM de destino del catálogo.')
+  return {
+    destinatario_estado: estado,
+    destinatario_ciudad: limited(formData, 'destinatario_ciudad', { required: true, label: 'Ciudad del destinatario' })!,
+    agencia_zoom_id: null,
+    agencia_zoom: null,
+    direccion: null,
   }
 }
 
@@ -99,12 +133,29 @@ function parsePackages(raw: FormDataEntryValue | null) {
 
 function parseContent(raw: FormDataEntryValue | null) {
   const lines = parseJsonList(raw, 'contenido')
-    .map((l) => ({ descripcion: String(l.descripcion ?? '').trim(), cantidad: l.cantidad }))
+    .map((l) => ({
+      descripcion: String(l.descripcion ?? '').trim(),
+      marca: String(l.marca ?? '').trim(),
+      cantidad: l.cantidad,
+      valor: l.valor,
+    }))
     .filter((l) => l.descripcion)
   if (lines.length > MAX_CONTENT_LINES) throw new ValidationError(`Máximo ${MAX_CONTENT_LINES} líneas de contenido.`)
   return lines.map((l, i) => {
-    if (l.descripcion.length > 200) throw new ValidationError(`La descripción de la línea ${i + 1} es demasiado larga.`)
-    return { linea: i + 1, descripcion: l.descripcion, cantidad: amount(l.cantidad, `Cantidad de la línea ${i + 1}`) }
+    const n = i + 1
+    if (l.descripcion.length > 200) throw new ValidationError(`La descripción de la línea ${n} es demasiado larga.`)
+    if (l.marca.length > 80) throw new ValidationError(`La marca de la línea ${n} es demasiado larga.`)
+    const cantidad = amount(l.cantidad, `Cantidad de la línea ${n}`)
+    if (cantidad !== null && !Number.isInteger(cantidad)) {
+      throw new ValidationError(`La cantidad de la línea ${n} debe ser un número entero.`)
+    }
+    return {
+      linea: n,
+      descripcion: l.descripcion,
+      marca: l.marca || null,
+      cantidad,
+      valor_usd: amount(l.valor, `Valor USD de la línea ${n}`),
+    }
   })
 }
 
@@ -156,8 +207,10 @@ export async function createPreregistro(_prev: FormState, formData: FormData): P
     }
     const contenido = text(formData, 'contenido_declarado')
     if (contenido && contenido.length > 2000) throw new ValidationError('El contenido declarado es demasiado largo.')
+    const { direccion: _direccion, ...dest } = await destination(supabase, formData)
     record = {
       ...parties(formData),
+      ...dest,
       codigo_env: envCode(formData),
       cantidad_paquetes: paquetes,
       contenido_declarado: contenido,
@@ -202,13 +255,19 @@ export async function createShipment(_prev: FormState, formData: FormData): Prom
     packages = parsePackages(formData.get('paquetes'))
     content = parseContent(formData.get('contenido'))
     guides = parseGuides(formData.get('guias'), packages.length)
+    const { direccion, ...dest } = await destination(supabase, formData)
+    const linesTotal = content.some((l) => l.valor_usd !== null)
+      ? Math.round(content.reduce((sum, l) => sum + (l.valor_usd ?? 0), 0) * 100) / 100
+      : null
     shipment = {
       ...parties(formData),
+      ...dest,
+      agencia_zoom_direccion: direccion,
       codigo_env: envCode(formData),
       preregistro_id: preregistroId || null,
       contenido_declarado: content.map((l) => (l.cantidad ? `${l.cantidad} x ${l.descripcion}` : l.descripcion)).join('\n') || null,
       codigo_guia: guides.map((g) => g.numero_guia).join(', ') || null,
-      valor_fob: amount(formData.get('valor_fob'), 'Total FOB'),
+      valor_fob: amount(formData.get('valor_fob'), 'Total FOB') ?? linesTotal,
       estado: oneOf(formData, 'estado', SHIPMENT_STATUSES, 'Estado de encomienda') ?? 'Recibida',
       fecha_recepcion: date(formData, 'fecha_recepcion', 'Fecha de recepción'),
       fecha_salida: date(formData, 'fecha_salida', 'Fecha de salida'),

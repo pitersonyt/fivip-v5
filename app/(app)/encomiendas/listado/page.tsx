@@ -11,8 +11,8 @@ import { listShipments } from '@/lib/encomiendas-data'
 export const metadata: Metadata = { title: 'Listado de encomiendas' }
 
 const DOCS = [
-  { slug: 'declaracion', label: 'Declaración' },
-  { slug: 'etiqueta', label: 'Etiqueta' },
+  { slug: 'declaracion', label: 'Vista previa Declaración Jurada' },
+  { slug: 'etiqueta', label: 'Vista previa Etiqueta + Control' },
   { slug: 'guias', label: 'Guías' },
 ] as const
 
@@ -62,7 +62,7 @@ export default async function Page({ searchParams }: PageProps<'/encomiendas/lis
             s.cantidad_paquetes,
             <span key="w" className="tabular-nums">{formatKg(s.peso_facturable_total)}</span>,
             <StatusBadge key="s" status={s.estado} />,
-            <div key="docs" className="flex justify-end gap-1">
+            <div key="docs" className="flex flex-wrap justify-end gap-1">
               {DOCS.map((doc) => (
                 <Link
                   key={doc.slug}
