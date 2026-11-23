@@ -61,15 +61,16 @@ function parties(formData: FormData) {
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof createClient>>>
 
-async function destination(supabase: Supabase, formData: FormData) {
+async function destination(supabase: Supabase, formData: FormData, onQueryError?: (error: ShipmentDbError) => never) {
   const agencyId = String(formData.get('agencia_zoom_id') ?? '').trim()
   if (agencyId) {
     if (!isUuid(agencyId)) throw new ValidationError('La agencia ZOOM seleccionada no es válida.')
-    const { data: agency } = await supabase
+    const { data: agency, error } = await supabase
       .from('zoom_agencias')
       .select('id, estado, ciudad, nombre_agencia, direccion, active')
       .eq('id', agencyId)
       .maybeSingle()
+    if (error) onQueryError?.(error)
     if (!agency || !agency.active) throw new ValidationError('La agencia ZOOM seleccionada no está disponible.')
     return {
       destinatario_estado: agency.estado as string,
@@ -81,11 +82,12 @@ async function destination(supabase: Supabase, formData: FormData) {
   }
 
   const estado = limited(formData, 'destinatario_estado', { required: true, label: 'Estado del destinatario' })!
-  const { count } = await supabase
+  const { count, error } = await supabase
     .from('zoom_agencias')
     .select('id', { count: 'exact', head: true })
     .eq('estado', estado)
     .eq('active', true)
+  if (error) onQueryError?.(error)
   if (count) throw new ValidationError('Selecciona la agencia ZOOM de destino del catálogo.')
   return {
     destinatario_estado: estado,
@@ -232,6 +234,14 @@ export async function createPreregistro(_prev: FormState, formData: FormData): P
   redirect('/encomiendas/pre-registros')
 }
 
+type ShipmentDbError = { message: string; code?: string; details?: string; hint?: string }
+
+function shipmentFailure(table: string, stage: string, error: ShipmentDbError) {
+  const { message, code, details, hint } = error
+  console.error('[encomiendas] Error guardando encomienda', { table, stage, message, code, details, hint })
+  return { error: `Error guardando encomienda: ${message} (Error ${stage}; public.${table})` }
+}
+
 export async function createShipment(_prev: FormState, formData: FormData): Promise<FormState> {
   const auth = await requireUser()
   if ('error' in auth) return { error: auth.error ?? null }
@@ -240,11 +250,12 @@ export async function createShipment(_prev: FormState, formData: FormData): Prom
   const preregistroId = String(formData.get('preregistro_id') ?? '')
   if (preregistroId && !isUuid(preregistroId)) return { error: 'El pre-registro no es válido.' }
   if (preregistroId) {
-    const { data: pre } = await supabase
+    const { data: pre, error } = await supabase
       .from('encomienda_preregistros')
       .select('estado')
       .eq('id', preregistroId)
       .maybeSingle()
+    if (error) return shipmentFailure('encomienda_preregistros', 'consultando pre-registro', error)
     if (!pre) return { error: 'El pre-registro no existe o no tienes acceso.' }
     if (pre.estado !== 'Pendiente') return { error: 'Este pre-registro ya fue convertido o anulado.' }
   }
@@ -257,7 +268,9 @@ export async function createShipment(_prev: FormState, formData: FormData): Prom
     packages = parsePackages(formData.get('paquetes'))
     content = parseContent(formData.get('contenido'))
     guides = parseGuides(formData.get('guias'), packages.length)
-    const { direccion, ...dest } = await destination(supabase, formData)
+    const { direccion, ...dest } = await destination(supabase, formData, error => {
+      throw new ValidationError(shipmentFailure('zoom_agencias', 'consultando agencia ZOOM', error).error)
+    })
     const linesTotal = content.some((l) => l.valor_usd !== null)
       ? Math.round(content.reduce((sum, l) => sum + (l.valor_usd ?? 0), 0) * 100) / 100
       : null
@@ -293,33 +306,49 @@ export async function createShipment(_prev: FormState, formData: FormData): Prom
     .insert({ ...shipment, user_id: user.id })
     .select('id')
     .single()
-  if (isUniqueViolation(error)) return { error: `El código ENV ${shipment.codigo_env} ya está registrado.` }
-  if (error || !created) return { error: 'No se pudo guardar la encomienda. Intenta nuevamente.' }
+  if (error || !created?.id) return shipmentFailure('encomiendas', 'creando encomienda', error ?? { message: 'El INSERT no devolvió un ID.' })
 
   const withParent = <T extends object>(rows: T[]) =>
     rows.map((row) => ({ ...row, encomienda_id: created.id, user_id: user.id }))
 
-  const results = await Promise.all([
-    supabase.from('encomienda_paquetes').insert(withParent(packages)),
-    content.length ? supabase.from('encomienda_contenido').insert(withParent(content)) : { error: null },
-    guides.length ? supabase.from('encomienda_guias').insert(withParent(guides)) : { error: null },
-    supabase.from('encomienda_eventos').insert({
-      encomienda_id: created.id,
-      user_id: user.id,
-      evento: preregistroId ? 'Encomienda registrada desde pre-registro' : 'Encomienda registrada',
-      estado_nuevo: shipment.estado,
-    }),
-  ])
-  if (results.some((r) => r.error)) {
-    await supabase.from('encomiendas').delete().eq('id', created.id)
-    return { error: 'No se pudieron guardar paquetes, contenido o guías. Intenta nuevamente.' }
+  const undoShipment = async (table: string, stage: string, cause: ShipmentDbError) => {
+    const failure = shipmentFailure(table, stage, cause)
+    const { error: undoError } = await supabase.from('encomiendas').delete().eq('id', created.id).select('id').single()
+    if (!undoError) return failure
+    const undo = shipmentFailure('encomiendas', 'revirtiendo encomienda', undoError)
+    return { error: `${failure.error}. ${undo.error}. Revisa el listado antes de reintentar.` }
   }
 
+  const { error: packageError } = await supabase.from('encomienda_paquetes').insert(withParent(packages))
+  if (packageError) return undoShipment('encomienda_paquetes', 'guardando paquetes', packageError)
+  if (content.length) {
+    const { error } = await supabase.from('encomienda_contenido').insert(withParent(content))
+    if (error) return undoShipment('encomienda_contenido', 'guardando mercancía', error)
+  }
+  if (guides.length) {
+    const { error } = await supabase.from('encomienda_guias').insert(withParent(guides))
+    if (error) return undoShipment('encomienda_guias', 'guardando guías', error)
+  }
+  const { error: eventError } = await supabase.from('encomienda_eventos').insert({
+    encomienda_id: created.id,
+    user_id: user.id,
+    evento: preregistroId ? 'Encomienda registrada desde pre-registro' : 'Encomienda registrada',
+    estado_nuevo: shipment.estado,
+  })
+  if (eventError) return undoShipment('encomienda_eventos', 'creando evento', eventError)
+
   if (preregistroId) {
-    await supabase
+    const { error } = await supabase
       .from('encomienda_preregistros')
       .update({ estado: 'Convertido', encomienda_id: created.id, updated_at: new Date().toISOString() })
       .eq('id', preregistroId)
+      .eq('estado', 'Pendiente')
+      .select('id')
+      .single()
+    if (error) {
+      const failure = shipmentFailure('encomienda_preregistros', 'actualizando pre-registro', error)
+      return { error: `${failure.error}. La encomienda ${shipment.codigo_env} ya se creó; revisa el listado antes de reintentar.` }
+    }
   }
 
   revalidatePath('/encomiendas', 'layout')
