@@ -21,6 +21,13 @@ import type { SectionPanelConfig } from '@/components/section-panel'
 
 export const PLAN_TYPES = ['1 dispositivo', 'Multi dispositivo'] as const
 
+export const PLAN_DURATIONS = [
+  { label: '1 mes', months: 1 },
+  { label: '3 meses', months: 3 },
+  { label: '6 meses', months: 6 },
+  { label: '12 meses', months: 12 },
+] as const
+
 export const SUBSCRIPTION_STATUSES = ['Activa', 'Por vencer', 'Vencida', 'Prueba / demo', 'Suspendida', 'Cancelada'] as const
 
 export function profit(costo: string, precio: string) {
