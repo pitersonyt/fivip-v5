@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { PrintToolbar } from '@/components/encomiendas/print-toolbar'
-import { DeclarationDoc, GuidesDoc, LabelDoc } from '@/components/encomiendas/documents'
+import { GuidesDoc } from '@/components/encomiendas/documents'
+import { DeclarationDoc } from '@/components/encomiendas/official-declaration'
+import { LabelDoc } from '@/components/encomiendas/official-label'
+import './official.css'
 import { getShipmentDocument } from '@/lib/encomiendas-data'
 
 const DOCS = {
@@ -27,7 +30,7 @@ export default async function Page({ params }: PageProps<'/encomiendas/documento
   const { Component, preview } = DOCS[doc]
   return (
     <>
-      <style>{'@page { size: A4 portrait; margin: 10mm; }'}</style>
+      <style>{`@page { size: A4 ${doc === 'etiqueta' ? 'landscape' : 'portrait'}; margin: ${doc === 'guias' ? '10mm' : '0'}; }`}</style>
       <PrintToolbar
         backHref="/encomiendas/listado"
         previewTitle={preview}
@@ -37,7 +40,7 @@ export default async function Page({ params }: PageProps<'/encomiendas/documento
           active: key === doc,
         }))}
       />
-      <main className="px-4 print:px-0">
+      <main className={doc === 'guias' ? 'px-4 print:px-0' : 'official-preview'}>
         <Component doc={data} />
       </main>
     </>
