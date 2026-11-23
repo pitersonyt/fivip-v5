@@ -19,12 +19,23 @@ const options = (values: string[]) => [...new Set(values)].sort((a, b) => a.loca
 function Destination({ agencies, catalogError }: { agencies: ZoomAgencyOption[]; catalogError?: string }) {
   const [estado, setEstado] = useState('')
   const [ciudad, setCiudad] = useState('')
+  const [agencyId, setAgencyId] = useState('')
   const inState = agencies.filter(a => a.estado === estado)
+  const inCity = inState.filter(a => a.ciudad === ciudad)
+  const selectedAgency = inCity.find(a => a.id === agencyId)
   return <>
     {catalogError && <p role="alert" className="col-span-full text-sm text-destructive">No se pudo cargar el catálogo ZOOM: {catalogError}</p>}
-    <SelectField id="destinatario_estado" label="Estado" disabled={!agencies.length} required value={estado} onChange={e => { setEstado(e.target.value); setCiudad('') }} options={options(agencies.map(a => a.estado))} placeholder={catalogError ? 'Error al cargar el catálogo' : agencies.length ? 'Seleccionar estado' : 'Sin agencias disponibles'} />
-    <SelectField id="destinatario_ciudad" label="Ciudad / Zona" required disabled={!estado} value={ciudad} onChange={e => setCiudad(e.target.value)} options={options(inState.map(a => a.ciudad))} placeholder="Seleccionar ciudad / zona" />
-    <Field id="agencia_zoom_id" label="Agencia ZOOM"><select key={JSON.stringify([estado, ciudad])} name="agencia_zoom_id" id="agencia_zoom_id" required defaultValue="" disabled={!ciudad} className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm disabled:opacity-50"><option value="" disabled>Seleccionar agencia</option>{inState.filter(a => a.ciudad === ciudad).map(a => <option key={a.id} value={a.id}>{a.nombre_agencia}</option>)}</select></Field>
+    <SelectField id="destinatario_estado" label="Estado" disabled={!agencies.length} required value={estado} onChange={e => { setEstado(e.target.value); setCiudad(''); setAgencyId('') }} options={options(agencies.map(a => a.estado))} placeholder={catalogError ? 'Error al cargar el catálogo' : agencies.length ? 'Seleccionar estado' : 'Sin agencias disponibles'} />
+    <SelectField id="destinatario_ciudad" label="Ciudad / Zona" required disabled={!estado} value={ciudad} onChange={e => { setCiudad(e.target.value); setAgencyId('') }} options={options(inState.map(a => a.ciudad))} placeholder="Seleccionar ciudad / zona" />
+    <Field id="agencia_zoom_id" label="Agencia ZOOM">
+      <select name="agencia_zoom_id" id="agencia_zoom_id" required value={agencyId} onChange={e => setAgencyId(e.target.value)} disabled={!ciudad} aria-describedby={selectedAgency ? 'direccion-agencia-zoom' : undefined} className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm disabled:opacity-50">
+        <option value="" disabled>Seleccionar agencia</option>
+        {inCity.map(a => <option key={a.id} value={a.id}>{a.nombre_agencia}</option>)}
+      </select>
+      <div id="direccion-agencia-zoom" aria-live="polite" aria-atomic="true" className="empty:hidden text-sm text-muted-foreground">
+        {selectedAgency && <><span className="block font-medium text-foreground">Dirección de la agencia ZOOM:</span>{selectedAgency.direccion?.trim() || 'No disponible en el catálogo.'}</>}
+      </div>
+    </Field>
   </>
 }
 

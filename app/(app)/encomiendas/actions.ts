@@ -205,7 +205,7 @@ export async function createPreregistro(_prev: FormState, formData: FormData): P
     const declaration = collectDeclaration(formData)
     if (!formData.get('agencia_zoom_id')) throw new ValidationError('Selecciona una agencia ZOOM del catálogo.')
     const contact = (key: string, label: string) => limited(formData, key, { required: true, label })!
-    const { direccion: _direccion, ...dest } = await destination(supabase, formData)
+    const { direccion, ...dest } = await destination(supabase, formData)
     record = {
       remitente_nombre: contact('remitente_nombre', 'Nombre del remitente'),
       remitente_documento: contact('remitente_documento', 'Documento del remitente'),
@@ -215,6 +215,7 @@ export async function createPreregistro(_prev: FormState, formData: FormData): P
       destinatario_documento: contact('destinatario_documento', 'Documento del destinatario'),
       destinatario_telefono: contact('destinatario_telefono', 'Teléfono del destinatario'),
       ...dest,
+      agencia_zoom_direccion: direccion,
       ...declaration,
       codigo_env: envCode(),
     }
