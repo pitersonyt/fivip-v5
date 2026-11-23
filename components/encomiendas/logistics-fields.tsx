@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { SelectField, TextAreaField, TextField } from '@/components/forms/form-fields'
 import { SHIPMENT_STATUSES, TRANSIT_DAYS, suggestSchedule } from '@/lib/encomiendas'
 
-export function LogisticsFields({ defaultAgency }: { defaultAgency?: string | null }) {
+export function LogisticsFields() {
   const [recepcion, setRecepcion] = useState('')
   const [salida, setSalida] = useState('')
   const [llegada, setLlegada] = useState('')
@@ -54,7 +54,6 @@ export function LogisticsFields({ defaultAgency }: { defaultAgency?: string | nu
         </Button>
       </div>
       <SelectField id="estado" label="Estado de encomienda" options={SHIPMENT_STATUSES} defaultValue="Recibida" />
-      <TextField id="agencia_zoom" label="Agencia ZOOM destino" defaultValue={defaultAgency ?? undefined} />
       <TextAreaField id="observaciones" label="Observaciones" className="sm:col-span-2 lg:col-span-3" />
     </>
   )

@@ -7,12 +7,25 @@ import { PackageList } from '@/components/encomiendas/package-list'
 import { ContentLines } from '@/components/encomiendas/content-lines'
 import { GuideList } from '@/components/encomiendas/guide-list'
 import { LogisticsFields } from '@/components/encomiendas/logistics-fields'
-import { EnvCodeField, RecipientFields, SenderFields } from '@/components/encomiendas/party-fields'
+import {
+  EnvCodeField,
+  RecipientFields,
+  SenderFields,
+  type ZoomAgencyOption,
+} from '@/components/encomiendas/party-fields'
 import { createShipment } from '@/app/(app)/encomiendas/actions'
 import type { Preregistro } from '@/lib/encomiendas-data'
 import { initialFormState } from '@/lib/form-utils'
 
-export function ShipmentForm({ disabled, preregistro }: { disabled: boolean; preregistro?: Preregistro | null }) {
+export function ShipmentForm({
+  disabled,
+  preregistro,
+  agencies,
+}: {
+  disabled: boolean
+  preregistro?: Preregistro | null
+  agencies: ZoomAgencyOption[]
+}) {
   const [state, formAction, pending] = useActionState(createShipment, initialFormState)
   const initialPackages = preregistro?.cantidad_paquetes ?? 1
   const [packageCount, setPackageCount] = useState(initialPackages)
@@ -27,8 +40,8 @@ export function ShipmentForm({ disabled, preregistro }: { disabled: boolean; pre
       <fieldset disabled={disabled || pending} className="flex flex-col gap-6">
         <SenderFields defaults={preregistro ?? undefined} />
         <RecipientFields
+          agencies={agencies}
           defaults={preregistro ?? undefined}
-          includeAgency={false}
           envCodeField={<EnvCodeField defaultValue={preregistro?.codigo_env} />}
         />
 
@@ -45,7 +58,7 @@ export function ShipmentForm({ disabled, preregistro }: { disabled: boolean; pre
         </FormSection>
 
         <FormSection title="Logística">
-          <LogisticsFields defaultAgency={preregistro?.agencia_zoom} />
+          <LogisticsFields />
         </FormSection>
       </fieldset>
 

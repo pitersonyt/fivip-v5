@@ -3,19 +3,24 @@
 import { useActionState } from 'react'
 import { FormSection, TextAreaField, TextField } from '@/components/forms/form-fields'
 import { FormActions } from '@/components/forms/form-actions'
-import { EnvCodeField, RecipientFields, SenderFields } from '@/components/encomiendas/party-fields'
+import {
+  EnvCodeField,
+  RecipientFields,
+  SenderFields,
+  type ZoomAgencyOption,
+} from '@/components/encomiendas/party-fields'
 import { createPreregistro } from '@/app/(app)/encomiendas/actions'
 import { MAX_PACKAGES } from '@/lib/encomiendas'
 import { initialFormState } from '@/lib/form-utils'
 
-export function PreregistroForm({ disabled }: { disabled: boolean }) {
+export function PreregistroForm({ disabled, agencies }: { disabled: boolean; agencies: ZoomAgencyOption[] }) {
   const [state, formAction, pending] = useActionState(createPreregistro, initialFormState)
 
   return (
     <form action={formAction} className="flex flex-col gap-6" aria-label="Nuevo pre-registro">
       <fieldset disabled={disabled || pending} className="flex flex-col gap-6">
         <SenderFields />
-        <RecipientFields />
+        <RecipientFields agencies={agencies} />
         <FormSection title="Envío">
           <EnvCodeField />
           <TextField
