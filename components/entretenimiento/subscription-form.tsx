@@ -1,36 +1,74 @@
 'use client'
 
-import { useState } from 'react'
+import { useActionState, useState } from 'react'
 import { ComputedField, FormSection, SelectField, TextAreaField, TextField } from '@/components/forms/form-fields'
 import { FormActions } from '@/components/forms/form-actions'
 import { SecretInput } from '@/components/secret-input'
-import { PLAN_TYPES, SUBSCRIPTION_STATUSES, profit } from '@/lib/entretenimiento'
+import { createSubscription } from '@/app/(app)/entretenimiento/actions'
+import { PLAN_DURATIONS, PLAN_TYPES, SUBSCRIPTION_STATUSES, profit } from '@/lib/entretenimiento'
+import { addMonths, initialFormState } from '@/lib/form-utils'
 
 export function SubscriptionForm({ disabled }: { disabled: boolean }) {
+  const [state, formAction, pending] = useActionState(createSubscription, initialFormState)
   const [costo, setCosto] = useState('')
   const [precio, setPrecio] = useState('')
+  const [inicio, setInicio] = useState('')
+  const [duracion, setDuracion] = useState('')
+  const [vencimiento, setVencimiento] = useState('')
   const ganancia = profit(costo, precio)
 
+  const recalculate = (nextInicio: string, nextDuracion: string) => {
+    const months = PLAN_DURATIONS.find((d) => d.label === nextDuracion)?.months
+    if (nextInicio && months) setVencimiento(addMonths(nextInicio, months))
+  }
+
   return (
-    <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-6" aria-label="Nueva suscripción">
-      <fieldset disabled={disabled} className="flex flex-col gap-6">
+    <form action={formAction} className="flex flex-col gap-6" aria-label="Nueva suscripción">
+      <fieldset disabled={disabled || pending} className="flex flex-col gap-6">
         <FormSection title="Cliente">
-          <TextField id="cliente" label="Cliente" autoComplete="off" />
+          <TextField id="cliente" label="Cliente" autoComplete="off" required />
           <TextField id="whatsapp" label="WhatsApp" type="tel" inputMode="tel" placeholder="+58 ..." />
           <TextField id="pais" label="País" />
         </FormSection>
 
         <FormSection title="Servicio y plan">
-          <TextField id="producto" label="Producto / servicio" />
+          <TextField id="producto" label="Producto / servicio" required />
           <SelectField id="tipo_plan" label="Tipo de plan" options={PLAN_TYPES} />
           <SelectField id="estado" label="Estado" options={SUBSCRIPTION_STATUSES} />
-          <TextField id="fecha_inicio" label="Fecha de inicio" type="date" />
-          <TextField id="fecha_vencimiento" label="Fecha de vencimiento" type="date" />
+          <TextField
+            id="fecha_inicio"
+            label="Fecha de inicio"
+            type="date"
+            value={inicio}
+            onChange={(e) => {
+              setInicio(e.target.value)
+              recalculate(e.target.value, duracion)
+            }}
+          />
+          <SelectField
+            id="duracion"
+            label="Duración"
+            options={PLAN_DURATIONS.map((d) => d.label)}
+            value={duracion}
+            onChange={(e) => {
+              setDuracion(e.target.value)
+              recalculate(inicio, e.target.value)
+            }}
+          />
+          <TextField
+            id="fecha_vencimiento"
+            label="Fecha de vencimiento"
+            type="date"
+            min={inicio || undefined}
+            value={vencimiento}
+            onChange={(e) => setVencimiento(e.target.value)}
+            hint="Se calcula con la fecha de inicio y la duración; puedes ajustarla."
+          />
         </FormSection>
 
         <FormSection
           title="Acceso al servicio"
-          description="La contraseña se mantiene oculta por defecto y debe almacenarse cifrada."
+          description="La contraseña se mantiene oculta por defecto y se almacena cifrada."
         >
           <TextField id="usuario_acceso" label="Usuario de acceso" autoComplete="off" spellCheck={false} />
           <SecretInput id="contrasena_servicio" label="Contraseña de servicio" />
@@ -67,7 +105,13 @@ export function SubscriptionForm({ disabled }: { disabled: boolean }) {
         </FormSection>
       </fieldset>
 
-      <FormActions cancelHref="/entretenimiento/suscripciones" disabled={disabled} submitLabel="Guardar suscripción" />
+      <FormActions
+        cancelHref="/entretenimiento/suscripciones"
+        disabled={disabled}
+        pending={pending}
+        error={state.error}
+        submitLabel="Guardar suscripción"
+      />
     </form>
   )
 }

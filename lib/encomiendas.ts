@@ -30,6 +30,8 @@ export const SHIPMENT_STATUSES = [
 
 export const VOLUMETRIC_DIVISOR = 5000
 
+export const MAX_PACKAGES = 50
+
 export function volumetricWeight(ancho: number, largo: number, alto: number) {
   if (![ancho, largo, alto].every((n) => Number.isFinite(n) && n > 0)) return null
   return (ancho * largo * alto) / VOLUMETRIC_DIVISOR

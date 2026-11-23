@@ -81,7 +81,13 @@ export function SelectField({
 } & React.ComponentProps<'select'>) {
   return (
     <Field id={id} label={label} className={className}>
-      <select id={id} name={props.name ?? id} defaultValue="" className={cn(controlClass, 'h-9')} {...props}>
+      <select
+        id={id}
+        name={props.name ?? id}
+        defaultValue={props.value === undefined ? '' : undefined}
+        className={cn(controlClass, 'h-9')}
+        {...props}
+      >
         <option value="" disabled>
           {placeholder}
         </option>
