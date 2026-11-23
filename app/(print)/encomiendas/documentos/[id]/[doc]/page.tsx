@@ -30,7 +30,7 @@ export default async function Page({ params }: PageProps<'/encomiendas/documento
   const { Component, preview } = DOCS[doc]
   return (
     <>
-      <style>{`@page { size: A4 ${doc === 'etiqueta' ? 'landscape' : 'portrait'}; margin: ${doc === 'guias' ? '10mm' : '0'}; }`}</style>
+      <style>{`@page { size: A4 ${doc === 'etiqueta' ? 'landscape' : 'portrait'}; margin: ${doc === 'guias' ? '10mm' : '7mm'}; }`}</style>
       <PrintToolbar
         backHref="/encomiendas/listado"
         previewTitle={preview}
