@@ -1,63 +1,52 @@
 'use client'
 
-import { useActionState } from 'react'
-import { FormSection, TextAreaField, TextField } from '@/components/forms/form-fields'
+import { useActionState, useState, type ReactNode } from 'react'
+import { SelectField, TextField, Field } from '@/components/forms/form-fields'
 import { FormActions } from '@/components/forms/form-actions'
-import {
-  EnvCodeField,
-  RecipientFields,
-  SenderFields,
-  type ZoomAgencyOption,
-} from '@/components/encomiendas/party-fields'
+import type { ZoomAgencyOption } from '@/components/encomiendas/party-fields'
+import { PreregistroDeclaration } from '@/components/encomiendas/preregistro-declaration'
 import { createPreregistro } from '@/app/(app)/encomiendas/actions'
-import { MAX_PACKAGES } from '@/lib/encomiendas'
 import { initialFormState } from '@/lib/form-utils'
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="overflow-hidden rounded-lg border border-border bg-card">
+    <h2 className="bg-sidebar px-4 py-2.5 text-sm font-semibold text-sidebar-foreground">{title}</h2>{children}
+  </section>
+}
+
+const options = (values: string[]) => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'es'))
+
+function Destination({ agencies }: { agencies: ZoomAgencyOption[] }) {
+  const [estado, setEstado] = useState('')
+  const [ciudad, setCiudad] = useState('')
+  const inState = agencies.filter(a => a.estado === estado)
+  return <>
+    <SelectField id="destinatario_estado" label="Estado" required value={estado} onChange={e => { setEstado(e.target.value); setCiudad('') }} options={options(agencies.map(a => a.estado))} placeholder={agencies.length ? 'Seleccionar estado' : 'Sin agencias disponibles'} />
+    <SelectField id="destinatario_ciudad" label="Ciudad / Zona" required disabled={!estado} value={ciudad} onChange={e => setCiudad(e.target.value)} options={options(inState.map(a => a.ciudad))} placeholder="Seleccionar ciudad / zona" />
+    <Field id="agencia_zoom_id" label="Agencia ZOOM"><select key={JSON.stringify([estado, ciudad])} name="agencia_zoom_id" id="agencia_zoom_id" required defaultValue="" disabled={!ciudad} className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm disabled:opacity-50"><option value="" disabled>Seleccionar agencia</option>{inState.filter(a => a.ciudad === ciudad).map(a => <option key={a.id} value={a.id}>{a.nombre_agencia}</option>)}</select></Field>
+  </>
+}
+
+function ContactFields({ party }: { party: 'remitente' | 'destinatario' }) {
+  return <>
+    <TextField id={`${party}_nombre`} label="Nombre y apellido" maxLength={500} required />
+    <TextField id={`${party}_documento`} label="Cédula / Documento" maxLength={500} required />
+    <TextField id={`${party}_telefono`} label="Teléfono / WhatsApp" type="tel" maxLength={500} required />
+  </>
+}
 
 export function PreregistroForm({ disabled, agencies }: { disabled: boolean; agencies: ZoomAgencyOption[] }) {
   const [state, formAction, pending] = useActionState(createPreregistro, initialFormState)
-
-  return (
-    <form action={formAction} className="flex flex-col gap-6" aria-label="Nuevo pre-registro">
-      <fieldset disabled={disabled || pending} className="flex flex-col gap-6">
-        <SenderFields />
-        <RecipientFields agencies={agencies} />
-        <FormSection title="Envío">
-          <EnvCodeField />
-          <TextField
-            id="cantidad_paquetes"
-            label="Número de paquetes"
-            type="number"
-            min={1}
-            max={MAX_PACKAGES}
-            step={1}
-            inputMode="numeric"
-          />
-          <TextField
-            id="valor_fob"
-            label="Valor FOB declarado (USD)"
-            type="number"
-            min={0}
-            step="0.01"
-            inputMode="decimal"
-          />
-          <TextAreaField
-            id="contenido_declarado"
-            label="Contenido declarado"
-            className="sm:col-span-2 lg:col-span-3"
-            placeholder="Una línea por artículo. Al convertir, cada línea pasa a la declaración."
-            rows={4}
-          />
-          <TextAreaField id="observaciones" label="Observaciones" className="sm:col-span-2 lg:col-span-3" />
-        </FormSection>
-      </fieldset>
-
-      <FormActions
-        cancelHref="/encomiendas/pre-registros"
-        disabled={disabled}
-        pending={pending}
-        error={state.error}
-        submitLabel="Guardar pre-registro"
-      />
-    </form>
-  )
+  return <form action={formAction} className="flex flex-col gap-4" aria-label="Nuevo pre-registro">
+    <fieldset disabled={pending} className="flex min-w-0 flex-col gap-4">
+      <Section title="1. DATOS DEL REMITENTE"><div className="grid gap-3 p-4 sm:grid-cols-2">
+        <ContactFields party="remitente" /><TextField id="remitente_direccion" label="Dirección" maxLength={500} required />
+      </div></Section>
+      <Section title="2. DATOS DEL DESTINATARIO"><div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ContactFields party="destinatario" /><Destination agencies={agencies} />
+      </div></Section>
+      <Section title="3. MERCANCÍA DECLARADA"><PreregistroDeclaration /></Section>
+    </fieldset>
+    <FormActions cancelHref="/encomiendas/pre-registros" disabled={disabled || !agencies.length} pending={pending} error={state.error} submitLabel="Guardar pre-registro" />
+  </form>
 }

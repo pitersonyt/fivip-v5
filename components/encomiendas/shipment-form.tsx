@@ -14,6 +14,7 @@ import {
   type ZoomAgencyOption,
 } from '@/components/encomiendas/party-fields'
 import { createShipment } from '@/app/(app)/encomiendas/actions'
+import { declarationDefaults } from '@/lib/preregistro-declaration'
 import type { Preregistro } from '@/lib/encomiendas-data'
 import { initialFormState } from '@/lib/form-utils'
 
@@ -29,10 +30,7 @@ export function ShipmentForm({
   const [state, formAction, pending] = useActionState(createShipment, initialFormState)
   const initialPackages = preregistro?.cantidad_paquetes ?? 1
   const [packageCount, setPackageCount] = useState(initialPackages)
-  const descriptions = (preregistro?.contenido_declarado ?? '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
+  const declaration = declarationDefaults(preregistro?.contenido_declarado)
 
   return (
     <form action={formAction} className="flex flex-col gap-6" aria-label="Nueva encomienda">
@@ -50,7 +48,7 @@ export function ShipmentForm({
         </FormSection>
 
         <FormSection title="Contenido" description="Líneas de mercadería para la declaración jurada.">
-          <ContentLines initialDescriptions={descriptions} initialFob={preregistro?.valor_fob} />
+          <ContentLines initialRows={declaration} initialFob={preregistro?.valor_fob} />
         </FormSection>
 
         <FormSection title="Guías ZOOM" description="Una o varias guías asignadas por ZOOM.">

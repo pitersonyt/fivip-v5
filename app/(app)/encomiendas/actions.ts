@@ -15,6 +15,7 @@ import {
   shipmentTotals,
   volumetricWeight,
 } from '@/lib/encomiendas'
+import { collectDeclaration } from '@/lib/preregistro-declaration'
 import { isUuid } from '@/lib/encomiendas-data'
 import { ValidationError, amount, date, oneOf, text, type FormState } from '@/lib/form-utils'
 
@@ -26,8 +27,8 @@ function limited(formData: FormData, key: string, opts?: { required?: boolean; l
   return value
 }
 
-function envCode(formData: FormData) {
-  const raw = text(formData, 'codigo_env')?.toUpperCase().replace(/\s+/g, '') ?? null
+function envCode(formData?: FormData) {
+  const raw = formData && text(formData, 'codigo_env')?.toUpperCase().replace(/\s+/g, '')
   if (raw && !/^[A-Z0-9-]{3,30}$/.test(raw)) {
     throw new ValidationError('El código ENV solo admite letras, números y guiones (3 a 30 caracteres).')
   }
@@ -201,21 +202,21 @@ export async function createPreregistro(_prev: FormState, formData: FormData): P
 
   let record
   try {
-    const paquetes = amount(formData.get('cantidad_paquetes'), 'Número de paquetes')
-    if (paquetes !== null && (!Number.isInteger(paquetes) || paquetes < 1 || paquetes > MAX_PACKAGES)) {
-      throw new ValidationError(`El número de paquetes debe ser un entero entre 1 y ${MAX_PACKAGES}.`)
-    }
-    const contenido = text(formData, 'contenido_declarado')
-    if (contenido && contenido.length > 2000) throw new ValidationError('El contenido declarado es demasiado largo.')
+    const declaration = collectDeclaration(formData)
+    if (!formData.get('agencia_zoom_id')) throw new ValidationError('Selecciona una agencia ZOOM del catálogo.')
+    const contact = (key: string, label: string) => limited(formData, key, { required: true, label })!
     const { direccion: _direccion, ...dest } = await destination(supabase, formData)
     record = {
-      ...parties(formData),
+      remitente_nombre: contact('remitente_nombre', 'Nombre del remitente'),
+      remitente_documento: contact('remitente_documento', 'Documento del remitente'),
+      remitente_telefono: contact('remitente_telefono', 'Teléfono del remitente'),
+      remitente_direccion: contact('remitente_direccion', 'Dirección'),
+      destinatario_nombre: contact('destinatario_nombre', 'Nombre del destinatario'),
+      destinatario_documento: contact('destinatario_documento', 'Documento del destinatario'),
+      destinatario_telefono: contact('destinatario_telefono', 'Teléfono del destinatario'),
       ...dest,
-      codigo_env: envCode(formData),
-      cantidad_paquetes: paquetes,
-      contenido_declarado: contenido,
-      valor_fob: amount(formData.get('valor_fob'), 'Valor FOB'),
-      observaciones: limited(formData, 'observaciones'),
+      ...declaration,
+      codigo_env: envCode(),
     }
   } catch (error) {
     if (error instanceof ValidationError) return { error: error.message }
