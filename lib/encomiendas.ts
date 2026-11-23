@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import type { ModuleConfig } from '@/components/module-page'
 import type { SectionPanelConfig } from '@/components/section-panel'
+import type { Column } from '@/components/data-table-shell'
+import type { Stat } from '@/components/stat-card'
 
 export const SHIPMENT_STATUSES = [
   'Pre-registrada',
@@ -28,18 +30,119 @@ export const SHIPMENT_STATUSES = [
   'Devuelta',
 ] as const
 
-export const VOLUMETRIC_DIVISOR = 5000
+export const PREREGISTRO_STATUSES = ['Pendiente', 'Convertido', 'Anulado'] as const
 
+export const GUIDE_STATUSES = [
+  'Asignada',
+  'Despachada',
+  'En tránsito',
+  'En agencia ZOOM',
+  'Entregada',
+  'Devuelta',
+] as const
+
+export const VENEZUELA_STATES = [
+  'Amazonas',
+  'Anzoátegui',
+  'Apure',
+  'Aragua',
+  'Barinas',
+  'Bolívar',
+  'Carabobo',
+  'Cojedes',
+  'Delta Amacuro',
+  'Distrito Capital',
+  'Falcón',
+  'Guárico',
+  'La Guaira',
+  'Lara',
+  'Mérida',
+  'Miranda',
+  'Monagas',
+  'Nueva Esparta',
+  'Portuguesa',
+  'Sucre',
+  'Táchira',
+  'Trujillo',
+  'Yaracuy',
+  'Zulia',
+] as const
+
+export const ORIGIN_COUNTRY = 'Perú'
+
+export const VOLUMETRIC_DIVISOR = 5000
 export const MAX_PACKAGES = 50
+export const MAX_GUIDES = 20
+export const DECLARATION_LINES = 6
+export const MAX_CONTENT_LINES = 30
+export const TRANSIT_DAYS = 7
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 export function volumetricWeight(ancho: number, largo: number, alto: number) {
   if (![ancho, largo, alto].every((n) => Number.isFinite(n) && n > 0)) return null
-  return (ancho * largo * alto) / VOLUMETRIC_DIVISOR
+  return round2((ancho * largo * alto) / VOLUMETRIC_DIVISOR)
+}
+
+export function billableWeight(fisico: number | null, volumetrico: number | null) {
+  if (fisico === null && volumetrico === null) return null
+  return round2(Math.max(fisico ?? 0, volumetrico ?? 0))
+}
+
+export type PackageMeasures = {
+  peso_fisico: number | null
+  peso_volumetrico: number | null
+  peso_facturable: number | null
+}
+
+export function shipmentTotals(packages: PackageMeasures[]) {
+  const sum = (key: keyof PackageMeasures) => round2(packages.reduce((acc, p) => acc + (p[key] ?? 0), 0))
+  return {
+    cantidad_paquetes: packages.length,
+    peso_fisico_total: sum('peso_fisico'),
+    peso_volumetrico_total: sum('peso_volumetrico'),
+    peso_facturable_total: sum('peso_facturable'),
+  }
+}
+
+function addDays(iso: string, days: number) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d + days))
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * FIVIP receives until Wednesday and departs on Thursday; arrival is about
+ * TRANSIT_DAYS calendar days later. Packages received on Thursday or later
+ * go out the following Thursday. Staff can always override the suggestion.
+ */
+export function suggestSchedule(fechaRecepcion: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRecepcion)) return null
+  const [y, m, d] = fechaRecepcion.split('-').map(Number)
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  const THURSDAY = 4
+  const delta = (THURSDAY - weekday + 7) % 7 || 7
+  const salida = addDays(fechaRecepcion, delta)
+  return { fecha_salida: salida, fecha_llegada_estimada: addDays(salida, TRANSIT_DAYS) }
+}
+
+export const formatKg = (n: number | null | undefined) =>
+  n === null || n === undefined ? '—' : Number(n).toFixed(2)
+
+export const formatUsd = (n: number | null | undefined) =>
+  n === null || n === undefined
+    ? '—'
+    : new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'USD' }).format(Number(n))
+
+export const formatDate = (iso: string | null | undefined) => {
+  if (!iso) return '—'
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return `${d}/${m}/${y}`
 }
 
 export const encomiendasPanel: SectionPanelConfig = {
   title: 'Panel de Encomiendas',
-  description: 'Recepción, despacho y seguimiento de paquetes enviados mediante agencias ZOOM.',
+  description: 'Envíos de Perú a Venezuela: pre-registro, recepción, despacho del jueves y entrega en agencias ZOOM.',
   stats: [
     { label: 'Recibidas hoy', icon: PackageCheck },
     { label: 'En tránsito', icon: Plane },
@@ -49,11 +152,11 @@ export const encomiendasPanel: SectionPanelConfig = {
   recent: {
     title: 'Encomiendas recientes',
     columns: [
-      { label: 'Guía' },
+      { label: 'Código ENV' },
       { label: 'Remitente' },
       { label: 'Destinatario' },
       { label: 'Destino' },
-      { label: 'Peso (kg)', align: 'right' },
+      { label: 'Peso facturable (kg)', align: 'right' },
       { label: 'Estado' },
     ],
     emptyTitle: 'Sin encomiendas recientes',
@@ -61,92 +164,122 @@ export const encomiendasPanel: SectionPanelConfig = {
   },
 }
 
-const NEW_HREF = '/encomiendas/nueva'
+type ListPageConfig = {
+  title: string
+  description: string
+  tableTitle: string
+  stats: Stat[]
+  columns: Column[]
+  emptyTitle: string
+  emptyDescription: string
+}
+
+export const preregistrosPage: ListPageConfig = {
+  title: 'Pre-registros',
+  description: 'Datos del cliente tomados antes de procesar el envío. Conviértelos en encomienda sin volver a escribirlos.',
+  tableTitle: 'Pre-registros',
+  stats: [
+    { label: 'Pendientes', icon: ClipboardList },
+    { label: 'Convertidos', icon: PackageCheck },
+    { label: 'Paquetes esperados', icon: Package },
+    { label: 'Valor FOB declarado', icon: DollarSign },
+  ],
+  columns: [
+    { label: 'Código ENV' },
+    { label: 'Fecha' },
+    { label: 'Remitente' },
+    { label: 'Destinatario' },
+    { label: 'Destino' },
+    { label: 'Paquetes', align: 'right' },
+    { label: 'Estado' },
+    { label: 'Acciones', align: 'right' },
+  ],
+  emptyTitle: 'No hay pre-registros',
+  emptyDescription: 'Los pre-registros de los clientes aparecerán aquí para convertirlos en encomiendas.',
+}
+
+export const listadoPage: ListPageConfig = {
+  title: 'Listado de encomiendas',
+  description: 'Encomiendas registradas con sus documentos: declaración jurada, etiqueta y control, y guías.',
+  tableTitle: 'Encomiendas',
+  stats: [
+    { label: 'Total activas', icon: Package },
+    { label: 'En tránsito', icon: Plane },
+    { label: 'En agencia ZOOM', icon: Truck },
+    { label: 'Entregadas', icon: CheckCircle2 },
+  ],
+  columns: [
+    { label: 'Código ENV' },
+    { label: 'Recepción' },
+    { label: 'Remitente' },
+    { label: 'Destinatario' },
+    { label: 'Agencia ZOOM' },
+    { label: 'Paquetes', align: 'right' },
+    { label: 'Facturable (kg)', align: 'right' },
+    { label: 'Estado' },
+    { label: 'Documentos', align: 'right' },
+  ],
+  emptyTitle: 'Aún no hay encomiendas',
+  emptyDescription: 'Las encomiendas aparecerán aquí cuando se registre la primera.',
+}
+
+export const manifiestosPage: ListPageConfig = {
+  title: 'Manifiestos',
+  description: 'Manifiesto de carga generado a partir de las encomiendas registradas para cada salida.',
+  tableTitle: 'Encomiendas del manifiesto',
+  stats: [
+    { label: 'Encomiendas', icon: FileStack },
+    { label: 'Paquetes', icon: Package },
+    { label: 'Peso facturable', icon: Scale },
+    { label: 'Total FOB', icon: DollarSign },
+  ],
+  columns: [
+    { label: '#' },
+    { label: 'Código ENV' },
+    { label: 'Remitente' },
+    { label: 'Destinatario' },
+    { label: 'Destino' },
+    { label: 'Guías ZOOM' },
+    { label: 'Paquetes', align: 'right' },
+    { label: 'Facturable (kg)', align: 'right' },
+    { label: 'FOB (USD)', align: 'right' },
+  ],
+  emptyTitle: 'Sin encomiendas para esta salida',
+  emptyDescription: 'Selecciona una fecha de salida con encomiendas registradas para generar el manifiesto.',
+}
 
 export const encomiendasSections = {
-  'pre-registros': {
-    title: 'Pre-registros',
-    description: 'Solicitudes registradas antes de recibir físicamente el paquete en la oficina.',
-    createLabel: 'Nueva encomienda',
-    createHref: NEW_HREF,
-    tableTitle: 'Pre-registros',
-    searchPlaceholder: 'Buscar por remitente, destinatario o teléfono',
-    stats: [
-      { label: 'Pendientes', icon: ClipboardList },
-      { label: 'Recibidos hoy', icon: PackageCheck },
-      { label: 'Paquetes esperados', icon: Package },
-      { label: 'Vencidos', icon: CalendarClock },
-    ],
-    columns: [
-      { label: 'Código' },
-      { label: 'Fecha' },
-      { label: 'Remitente' },
-      { label: 'Teléfono' },
-      { label: 'Destinatario' },
-      { label: 'Ciudad / estado' },
-      { label: 'Paquetes', align: 'right' },
-      { label: 'Estado' },
-    ],
-    emptyTitle: 'No hay pre-registros',
-    emptyDescription: 'Los pre-registros se listarán aquí cuando los clientes o agentes los creen.',
-  },
-  listado: {
-    title: 'Listado de encomiendas',
-    description: 'Todas las encomiendas recibidas con su estado de envío actual.',
-    createLabel: 'Nueva encomienda',
-    createHref: NEW_HREF,
-    tableTitle: 'Encomiendas',
-    searchPlaceholder: 'Buscar por guía, remitente o destinatario',
-    stats: [
-      { label: 'Total activas', icon: Package },
-      { label: 'En tránsito', icon: Plane },
-      { label: 'En agencia ZOOM', icon: Truck },
-      { label: 'Entregadas (mes)', icon: CheckCircle2 },
-    ],
-    columns: [
-      { label: 'Guía' },
-      { label: 'Recepción' },
-      { label: 'Remitente' },
-      { label: 'Destinatario' },
-      { label: 'Ciudad / estado' },
-      { label: 'Agencia ZOOM' },
-      { label: 'Paquetes', align: 'right' },
-      { label: 'Peso (kg)', align: 'right' },
-      { label: 'Estado' },
-    ],
-    emptyTitle: 'Aún no hay encomiendas',
-    emptyDescription: 'Las encomiendas aparecerán aquí cuando Supabase esté conectado y se registre la primera.',
-  },
   'guias-zoom': {
     title: 'Guías ZOOM',
-    description: 'Códigos de guía asignados por ZOOM y agencias de destino.',
-    createLabel: 'Asignar guía',
+    description: 'Guías asignadas por ZOOM a cada encomienda. Un envío puede tener una o varias guías.',
+    createLabel: 'Nueva encomienda',
+    createHref: '/encomiendas/nueva',
     tableTitle: 'Guías',
-    searchPlaceholder: 'Buscar código de guía o agencia',
+    searchPlaceholder: 'Buscar número de guía o código ENV',
     stats: [
       { label: 'Guías activas', icon: Truck },
-      { label: 'Sin guía asignada', icon: Tag },
+      { label: 'Encomiendas multi-guía', icon: Tag },
       { label: 'Salidas esta semana', icon: Plane },
       { label: 'Llegadas esta semana', icon: CalendarClock },
     ],
     columns: [
-      { label: 'Código de guía' },
-      { label: 'Encomienda' },
+      { label: 'Número de guía' },
+      { label: 'Código ENV' },
+      { label: 'Paquete' },
+      { label: 'Peso (kg)', align: 'right' },
       { label: 'Agencia ZOOM' },
-      { label: 'Ciudad / estado' },
-      { label: 'Fecha de salida' },
-      { label: 'Llegada estimada' },
       { label: 'Estado' },
     ],
     emptyTitle: 'No hay guías registradas',
-    emptyDescription: 'Las guías ZOOM se listarán aquí cuando se asignen a las encomiendas.',
+    emptyDescription: 'Las guías ZOOM se registran dentro de cada encomienda.',
   },
   etiquetas: {
     title: 'Etiquetas y control',
-    description: 'Etiquetado por paquete, medidas, pesos y control de verificación.',
-    createLabel: 'Generar etiquetas',
+    description: 'Etiqueta + control en media página: marcas FIVIP y ZOOM, remitente, destinatario, código ENV, pesos, medidas y guías.',
+    createLabel: 'Ir al listado',
+    createHref: '/encomiendas/listado',
     tableTitle: 'Paquetes',
-    searchPlaceholder: 'Buscar encomienda o etiqueta',
+    searchPlaceholder: 'Buscar código ENV',
     stats: [
       { label: 'Por etiquetar', icon: Tag },
       { label: 'Verificados', icon: CheckCircle2 },
@@ -154,64 +287,41 @@ export const encomiendasSections = {
       { label: 'Peso volumétrico total', icon: Package },
     ],
     columns: [
-      { label: 'Encomienda' },
+      { label: 'Código ENV' },
       { label: 'Paquete' },
       { label: 'Medidas (cm)' },
       { label: 'Peso físico', align: 'right' },
       { label: 'Peso volumétrico', align: 'right' },
-      { label: 'Etiqueta' },
+      { label: 'Guía' },
       { label: 'Control' },
     ],
     emptyTitle: 'No hay paquetes para etiquetar',
-    emptyDescription: 'Cada paquete recibido aparecerá aquí para imprimir su etiqueta y verificarlo.',
+    emptyDescription: 'Abre una encomienda desde el listado para imprimir su etiqueta y control.',
   },
   declaraciones: {
     title: 'Declaraciones juradas',
-    description: 'Declaraciones de contenido y valor FOB firmadas por el remitente.',
-    createLabel: 'Nueva declaración',
+    description: 'Declaración jurada A4 generada desde la encomienda: remitente, destinatario, 6 líneas de mercadería y Total FOB.',
+    createLabel: 'Ir al listado',
+    createHref: '/encomiendas/listado',
     tableTitle: 'Declaraciones',
-    searchPlaceholder: 'Buscar por remitente o documento',
+    searchPlaceholder: 'Buscar por remitente o código ENV',
     stats: [
-      { label: 'Pendientes de firma', icon: FileSignature },
-      { label: 'Firmadas (mes)', icon: CheckCircle2 },
+      { label: 'Pendientes de revisión', icon: FileSignature },
+      { label: 'Revisadas', icon: CheckCircle2 },
       { label: 'Valor FOB declarado', icon: DollarSign },
       { label: 'Con observaciones', icon: ClipboardList },
     ],
     columns: [
-      { label: 'Encomienda' },
+      { label: 'Código ENV' },
       { label: 'Remitente' },
-      { label: 'Documento de identidad' },
-      { label: 'Contenido declarado' },
-      { label: 'Valor FOB', align: 'right' },
+      { label: 'Documento' },
+      { label: 'Contenido' },
+      { label: 'Total FOB', align: 'right' },
       { label: 'Fecha' },
-      { label: 'Estado' },
+      { label: 'Revisado' },
     ],
     emptyTitle: 'No hay declaraciones juradas',
-    emptyDescription: 'Las declaraciones se generarán a partir de cada encomienda registrada.',
-  },
-  manifiestos: {
-    title: 'Manifiestos',
-    description: 'Agrupación de encomiendas por despacho para su salida y control de carga.',
-    createLabel: 'Nuevo manifiesto',
-    tableTitle: 'Manifiestos',
-    searchPlaceholder: 'Buscar número de manifiesto',
-    stats: [
-      { label: 'Abiertos', icon: FileStack },
-      { label: 'Despachados (mes)', icon: Plane },
-      { label: 'Paquetes manifestados', icon: Package },
-      { label: 'Peso total', icon: Scale },
-    ],
-    columns: [
-      { label: 'Número' },
-      { label: 'Fecha de salida' },
-      { label: 'Llegada estimada' },
-      { label: 'Encomiendas', align: 'right' },
-      { label: 'Paquetes', align: 'right' },
-      { label: 'Peso total (kg)', align: 'right' },
-      { label: 'Estado' },
-    ],
-    emptyTitle: 'No hay manifiestos',
-    emptyDescription: 'Crea un manifiesto para agrupar las encomiendas listas para despacho.',
+    emptyDescription: 'Cada encomienda registrada genera su declaración jurada desde el listado.',
   },
   historial: {
     title: 'Historial de encomiendas',
