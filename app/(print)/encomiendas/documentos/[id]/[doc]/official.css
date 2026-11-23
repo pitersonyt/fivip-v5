@@ -92,6 +92,17 @@
     max-width: none !important;
     min-width: 0 !important;
   }
+  .official.pair { font-size: 10pt; }
+  .pair h2, .pair thead th { font-size: 11pt; padding-block: 5.5pt; }
+  .pair td, .pair th { padding-block: 3pt; }
+  .pair .ident td, .pair .measures td { height: 42pt; }
+  .pair .receiver tbody tr { height: 20pt; }
+  .pair .dest td { height: 24pt; }
+  .pair .measures th { font-size: 8pt; padding-block: 4pt; }
+  .pair .observ td { height: 91pt; }
+  .pair .receipt td { height: 25pt; }
+  .pair .env-bar { width: 204pt; }
+  .pair .env-bar svg { height: 76pt; }
   .official-preview :is(.official, table, section, .print-block) {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
