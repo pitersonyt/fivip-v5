@@ -14,15 +14,15 @@ const blank = (): Line => ({ descripcion: '', marca: '', cantidad: '', valor: ''
 const gridCols = 'grid-cols-[2rem_1fr] sm:grid-cols-[2.5rem_1fr_9rem_6rem_7rem]'
 
 export function ContentLines({
-  initialDescriptions = [],
+  initialRows = [],
   initialFob,
 }: {
-  initialDescriptions?: string[]
+  initialRows?: Omit<Line, 'marca'>[]
   initialFob?: number | null
 }) {
   const baseId = useId()
   const [lines, setLines] = useState<Line[]>(() => {
-    const seeded = initialDescriptions.slice(0, MAX_CONTENT_LINES).map((d) => ({ ...blank(), descripcion: d }))
+    const seeded = initialRows.slice(0, MAX_CONTENT_LINES).map((row) => ({ ...blank(), ...row }))
     return [...seeded, ...Array.from({ length: Math.max(DECLARATION_LINES - seeded.length, 0) }, blank)]
   })
 
